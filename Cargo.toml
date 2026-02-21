@@ -1,0 +1,13 @@
+[package]
+name = "gradtop"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "gradtop"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.28.2", features = ["extension-module"] }
+ratatui = "0.30.0"
+crossterm = "0.29.0"

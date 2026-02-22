@@ -2,23 +2,19 @@ import gradtop
 from collections import deque
 import random
 import time
+from torch import nn
+import sys
 
 class gradtopp:
     def __init__(self, model) -> None:
-        monitor = gradtop.Monitor()
-
-        loss = 1.0
-        for step in range(200):
-            if not monitor.is_running():
-                break
-            time.sleep(0.8)
-
-            loss = loss * 0.98 + (random.random() * 0.05)
-
-            monitor.tick(float(loss))
+        self.monitor = gradtop.Monitor()
 
         self.model = model
         self.handles = []
+        self.stats = {}
+
+    def tick(self, loss: float):
+        self.monitor.tick(loss)
 
     def _get_activation_hook(self, name):
         """Hook for Layers (ReLUs, Linear)"""
@@ -64,5 +60,3 @@ class gradtopp:
         for handle in self.handles:
             handle.remove()
 
-
-gradtopp(None)

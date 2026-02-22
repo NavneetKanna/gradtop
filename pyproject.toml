@@ -8,6 +8,12 @@ dependencies = [
     "maturin>=1.12.2",
 ]
 
+[project.optional-dependencies]
+test = [
+    "torch",
+    "torchvision"
+]
+
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"

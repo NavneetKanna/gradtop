@@ -34,9 +34,8 @@ class Net(nn.Module):
         return output
 
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(args, model, device, train_loader, optimizer, epoch, m):
     model.train()
-    loss = torch.tensor(0.0)
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
@@ -44,13 +43,13 @@ def train(args, model, device, train_loader, optimizer, epoch):
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
+        m.tick(loss.item())
         # if batch_idx % args.log_interval == 0:
         #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
         #         epoch, batch_idx * len(data), len(train_loader.dataset),
         #         100. * batch_idx / len(train_loader), loss.item()))
         #     if args.dry_run:
         #         break
-    return loss
 
 
 def test(model, device, test_loader):
@@ -131,10 +130,9 @@ def main():
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-    with gradtopp(model) as m:
+    with gradtopp(model, 70) as m:
         for epoch in range(1, args.epochs + 1):
-            loss = train(args, model, device, train_loader, optimizer, epoch)
-            m.tick(loss.item())
+            loss = train(args, model, device, train_loader, optimizer, epoch, m)
             test(model, device, test_loader)
             scheduler.step()
 

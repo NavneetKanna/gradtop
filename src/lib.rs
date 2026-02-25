@@ -12,14 +12,27 @@ mod gradtop {
     };
     use std::thread::JoinHandle;
 
+    #[derive(Debug)]
+    struct Layer {
+        name: String,
+        grad_norm: f64,
+        weight_norm: f64,
+    }
+
+    struct Stats {
+        loss: f64,
+        layers: Vec<Layer>,
+    }
+
     enum Message {
-        Loss(f64),
+        Stats(Stats),
         Quit,
     }
 
     struct App {
         rx: Receiver<Message>,
         loss_data: Vec<(f64, f64)>,
+        layers: Vec<Layer>,
         step: usize,
     }
 
@@ -28,6 +41,7 @@ mod gradtop {
             App {
                 rx,
                 loss_data: Vec::new(),
+                layers: Vec::new(),
                 step: 0,
             }
         }
@@ -36,12 +50,14 @@ mod gradtop {
             loop {
                 while let Ok(msg) = self.rx.try_recv() {
                     match msg {
-                        Message::Loss(loss) => {
+                        Message::Stats(stats) => {
+                            let loss = stats.loss;
                             self.loss_data.push((self.step as f64, loss));
                             self.step += 1;
-                            if self.loss_data.len() > 30 {
+                            if self.loss_data.len() > 100 {
                                 self.loss_data.remove(0);
                             }
+                            self.layers = stats.layers;
                         }
                         Message::Quit => return Ok(()),
                     }
@@ -79,7 +95,7 @@ mod gradtop {
 
         let datasets = vec![
             Dataset::default()
-                .name("testloss")
+                .name("loss")
                 .marker(symbols::Marker::Braille)
                 .graph_type(GraphType::Line)
                 .style(Style::default().fg(Color::Cyan))
@@ -87,10 +103,10 @@ mod gradtop {
         ];
 
         let chart = Chart::new(datasets)
-            .block(Block::bordered())
+            .block(Block::bordered().title("Loss"))
             .x_axis(
                 Axis::default()
-                    .title("Epoch")
+                    .title("Steps")
                     .style(Style::default().fg(Color::Gray))
                     .labels([
                         format!("{:.0}", x_bounds[0]),
@@ -101,7 +117,7 @@ mod gradtop {
             )
             .y_axis(
                 Axis::default()
-                    .title("nottestLoss")
+                    // .title("nottestLoss")
                     .style(Style::default().fg(Color::Gray))
                     .labels([
                         format!("{:.3}", y_bounds[0]),
@@ -139,8 +155,25 @@ mod gradtop {
             }
         }
 
-        fn tick(&self, loss: f64) -> PyResult<()> {
-            let _ = self.sender.send(Message::Loss(loss));
+        fn tick(
+            &self,
+            loss: f64,
+            names: Vec<String>,
+            grad_norms: Vec<f64>,
+            weight_norms: Vec<f64>,
+        ) -> PyResult<()> {
+            let layers: Vec<Layer> = names
+                .into_iter()
+                .zip(grad_norms)
+                .zip(weight_norms)
+                .map(|((name, grad_norm), weight_norm)| Layer {
+                    name,
+                    grad_norm,
+                    weight_norm,
+                })
+                .collect();
+            let stats = Stats { loss, layers };
+            let _ = self.sender.send(Message::Stats(stats));
             Ok(())
         }
     }

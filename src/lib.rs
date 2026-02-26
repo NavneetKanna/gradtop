@@ -6,9 +6,10 @@ mod gradtop {
     use super::*;
     use ratatui::{
         DefaultTerminal,
+        layout::Constraint,
         style::{Color, Style},
         symbols,
-        widgets::{Axis, Block, Chart, Dataset, GraphType},
+        widgets::{Axis, Block, Cell, Chart, Dataset, GraphType, Row, Table},
     };
     use std::thread::JoinHandle;
 
@@ -63,11 +64,12 @@ mod gradtop {
                     }
                 }
                 terminal.draw(|frame| {
-                    let [top, _bottom] = ratatui::layout::Layout::vertical(
+                    let [top, bottom] = ratatui::layout::Layout::vertical(
                         [ratatui::layout::Constraint::Fill(1); 2],
                     )
                     .areas(frame.area());
                     render_loss_chart(frame, top, &self.loss_data);
+                    render_norm_table(frame, bottom, &self.layers);
                 })?;
 
                 if crossterm::event::poll(std::time::Duration::from_millis(16))? {
@@ -77,6 +79,39 @@ mod gradtop {
                 }
             }
         }
+    }
+
+    fn render_norm_table(
+        frame: &mut ratatui::Frame,
+        area: ratatui::layout::Rect,
+        layers: &Vec<Layer>,
+    ) {
+        let header_style = Style::default();
+
+        let header = ["Name", "Grad Norm", "Weight Norm"]
+            .into_iter()
+            .map(Cell::from)
+            .collect::<Row>()
+            .style(header_style)
+            .height(1);
+        let rows = layers.iter().map(|layer| {
+            Row::new(vec![
+                Cell::from(layer.name.clone()),
+                Cell::from(format!("{:.4}", layer.grad_norm)),
+                Cell::from(format!("{:.4}", layer.weight_norm)),
+            ])
+        });
+        let bar = " █ ";
+        let t = Table::new(
+            rows,
+            [
+                Constraint::Min(20),
+                Constraint::Min(12),
+                Constraint::Min(12),
+            ],
+        )
+        .header(header);
+        frame.render_widget(t, area);
     }
 
     fn render_loss_chart(

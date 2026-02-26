@@ -4,6 +4,7 @@ import random
 import time
 from torch import nn
 import sys
+import warnings
 
 class gradtopp:
     def __init__(self, model, every_n_steps: int = 10) -> None:
@@ -53,8 +54,13 @@ class gradtopp:
     def __enter__(self):
         for name, module in self.model.named_modules():
             if len(list(module.children())) == 0:
-                handle_module = module.register_backward_hook(self._get_activation_hook(name))
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    handle_module = module.register_full_backward_hook(
+                        self._get_activation_hook(name)
+                    )
                 self.handles.append(handle_module)
+
 
                 for param_name, param in module.named_parameters(recurse=False):
                     if param.requires_grad:

@@ -6,6 +6,9 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 from main import gradtopp
+import warnings
+warnings.filterwarnings("ignore")
+
 
 
 class Net(nn.Module):

@@ -6,10 +6,9 @@ mod gradtop {
     use super::*;
     use ratatui::{
         DefaultTerminal,
-        layout::Constraint,
         style::{Color, Style},
         symbols,
-        widgets::{Axis, Block, Cell, Chart, Dataset, GraphType, Row, Table},
+        widgets::{Axis, Block, Chart, Dataset, GraphType},
     };
     use std::collections::HashMap;
     use std::thread::JoinHandle;

@@ -1,12 +1,10 @@
 [project]
 name = "gradtop"
 version = "0.1.0"
-description = "Add your description here"
+description = "A terminal UI for monitoring neural network training in real time"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "maturin>=1.12.2",
-]
+dependencies = []
 
 [project.optional-dependencies]
 test = [
@@ -21,3 +19,5 @@ build-backend = "maturin"
 [tool.uv]
 cache-keys = [{ file = "src/**/*.rs" }, { file = "Cargo.toml" }]
 
+[tool.maturin]
+python-packages = ["gradtop"]

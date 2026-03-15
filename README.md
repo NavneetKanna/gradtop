@@ -28,7 +28,6 @@ maturin develop
 import gradtop
 from gradtop import gradtop
 
-# wrap your training loop
 with GradTop(model, optimizer, every_n_steps=10) as monitor:
     for epoch in range(epochs):
         for data, target in train_loader:

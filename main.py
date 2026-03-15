@@ -6,16 +6,14 @@ from torch import nn
 import sys
 import warnings
 
-class gradtopp:
-    def __init__(self, model, every_n_steps: int = 10) -> None:
+class GradTop:
+    def __init__(self, model, optimizer,  every_n_steps: int = 10) -> None:
         self.monitor = gradtop.Monitor()
-
         self.model = model
+        self.optimizer = optimizer
         self.handles = []
-
-        self._grad_norms: dict[str, float] = {}
-        self._weight_norms: dict[str, float] = {}
-
+        self._grad_stds: dict[str, float] = {}
+        self._data_stds: dict[str, float] = {}
         self._step = 0
         self.every_n_steps = every_n_steps
 
@@ -24,17 +22,15 @@ class gradtopp:
         if self._step % self.every_n_steps != 0:
             return
 
-        names = list(self._grad_norms.keys())
-
+        names = list(self._grad_stds.keys())
         self.monitor.tick(
             loss,
             names,
-            [self._grad_norms[n] for n in names],
-            [self._weight_norms[n] for n in names],
+            [self._grad_stds[n] for n in names],
+            [self._data_stds[n] for n in names],
         )
-
-        self._grad_norms.clear()
-        self._weight_norms.clear()
+        self._grad_stds.clear()
+        self._data_stds.clear()
 
     def _get_activation_hook(self, name):
         def hook(module, grad_input, grad_output):
@@ -46,8 +42,10 @@ class gradtopp:
         def hook(grad):
             if grad is None:
                 return
-            self._grad_norms[name] = grad.norm().item()
-            self._weight_norms[name] = param.norm().item()
+            lr = self.optimizer.param_groups[0]['lr']
+            # ratio: (lr * grad).std() / param.data.std()
+            self._grad_stds[name] = (lr * grad).std().item()
+            self._data_stds[name] = param.data.std().item()
 
         return hook
 
@@ -65,7 +63,6 @@ class gradtopp:
                 for param_name, param in module.named_parameters(recurse=False):
                     if param.requires_grad:
                         full_param_name = f"{name}.{param_name}"
-
                         handle_param = param.register_hook(self._get_weight_hook(full_param_name, param))
                         self.handles.append(handle_param)
 

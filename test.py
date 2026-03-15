@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
-from main import gradtopp
+from main import GradTop
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -133,7 +133,7 @@ def main():
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-    with gradtopp(model, 70) as m:
+    with GradTop(model, optimizer, 70) as m:
         for epoch in range(1, args.epochs + 1):
             loss = train(args, model, device, train_loader, optimizer, epoch, m)
             test(model, device, test_loader)

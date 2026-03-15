@@ -11,13 +11,23 @@ mod gradtop {
         symbols,
         widgets::{Axis, Block, Cell, Chart, Dataset, GraphType, Row, Table},
     };
+    use std::collections::HashMap;
     use std::thread::JoinHandle;
 
     #[derive(Debug)]
     struct Layer {
         name: String,
-        grad_norm: f64,
-        weight_norm: f64,
+        grad_std: f64,
+        data_std: f64,
+    }
+
+    impl Layer {
+        fn log_ratio(&self) -> f64 {
+            if self.data_std == 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            (self.grad_std / self.data_std).log10()
+        }
     }
 
     struct Stats {
@@ -33,7 +43,7 @@ mod gradtop {
     struct App {
         rx: Receiver<Message>,
         loss_data: Vec<(f64, f64)>,
-        layers: Vec<Layer>,
+        ratio_history: HashMap<String, Vec<(f64, f64)>>,
         step: usize,
     }
 
@@ -42,34 +52,49 @@ mod gradtop {
             App {
                 rx,
                 loss_data: Vec::new(),
-                layers: Vec::new(),
+                ratio_history: HashMap::new(),
                 step: 0,
             }
         }
 
         fn run(&mut self, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
+            // drain any buffered input events before starting
+            while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+                crossterm::event::read()?;
+            }
+
             loop {
                 while let Ok(msg) = self.rx.try_recv() {
                     match msg {
                         Message::Stats(stats) => {
-                            let loss = stats.loss;
-                            self.loss_data.push((self.step as f64, loss));
+                            self.loss_data.push((self.step as f64, stats.loss));
                             self.step += 1;
                             if self.loss_data.len() > 100 {
                                 self.loss_data.remove(0);
                             }
-                            self.layers = stats.layers;
+
+                            for layer in &stats.layers {
+                                let history = self
+                                    .ratio_history
+                                    .entry(layer.name.clone())
+                                    .or_insert_with(Vec::new);
+                                history.push((self.step as f64, layer.log_ratio()));
+                                if history.len() > 100 {
+                                    history.remove(0);
+                                }
+                            }
                         }
                         Message::Quit => return Ok(()),
                     }
                 }
+
                 terminal.draw(|frame| {
                     let [top, bottom] = ratatui::layout::Layout::vertical(
                         [ratatui::layout::Constraint::Fill(1); 2],
                     )
                     .areas(frame.area());
                     render_loss_chart(frame, top, &self.loss_data);
-                    render_norm_table(frame, bottom, &self.layers);
+                    render_ratio_chart(frame, bottom, &self.ratio_history, self.step);
                 })?;
 
                 if crossterm::event::poll(std::time::Duration::from_millis(16))? {
@@ -81,37 +106,75 @@ mod gradtop {
         }
     }
 
-    fn render_norm_table(
+    fn render_ratio_chart(
         frame: &mut ratatui::Frame,
         area: ratatui::layout::Rect,
-        layers: &Vec<Layer>,
+        ratio_history: &HashMap<String, Vec<(f64, f64)>>,
+        step: usize,
     ) {
-        let header_style = Style::default();
+        let x_min = step.saturating_sub(100) as f64;
+        let x_max = (step as f64).max(x_min + 1.0); // avoid x_min == x_max
+        let reference_line: Vec<(f64, f64)> = vec![(x_min, -3.0), (x_max, -3.0)];
 
-        let header = ["Name", "Grad Norm", "Weight Norm"]
-            .into_iter()
-            .map(Cell::from)
-            .collect::<Row>()
-            .style(header_style)
-            .height(1);
-        let rows = layers.iter().map(|layer| {
-            Row::new(vec![
-                Cell::from(layer.name.clone()),
-                Cell::from(format!("{:.4}", layer.grad_norm)),
-                Cell::from(format!("{:.4}", layer.weight_norm)),
-            ])
-        });
-        let bar = " █ ";
-        let t = Table::new(
-            rows,
-            [
-                Constraint::Min(20),
-                Constraint::Min(12),
-                Constraint::Min(12),
-            ],
-        )
-        .header(header);
-        frame.render_widget(t, area);
+        let colors = [
+            Color::Cyan,
+            Color::Yellow,
+            Color::Green,
+            Color::Magenta,
+            Color::Red,
+            Color::Blue,
+            Color::LightCyan,
+            Color::LightYellow,
+        ];
+
+        // collect into a sorted vec so layer order is stable across frames
+        let mut entries: Vec<(&String, &Vec<(f64, f64)>)> = ratio_history.iter().collect();
+        entries.sort_by_key(|(name, _)| *name);
+
+        let mut datasets: Vec<Dataset> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, (name, data))| {
+                Dataset::default()
+                    .name(name.as_str())
+                    .marker(symbols::Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(Style::default().fg(colors[i % colors.len()]))
+                    .data(data)
+            })
+            .collect();
+
+        datasets.push(
+            Dataset::default()
+                .name("-3 (target)")
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::White))
+                .data(&reference_line),
+        );
+
+        let chart = Chart::new(datasets)
+            .block(Block::bordered().title("Update/Data Ratio (log10) — target: -3"))
+            .x_axis(
+                Axis::default()
+                    .title("Steps")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels([
+                        format!("{:.0}", x_min),
+                        format!("{:.0}", (x_min + x_max) / 2.0),
+                        format!("{:.0}", x_max),
+                    ])
+                    .bounds([x_min, x_max]),
+            )
+            .y_axis(
+                Axis::default()
+                    .title("log10(ratio)")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(["-4", "-3", "-2", "-1", "0"])
+                    .bounds([-4.0, 0.0]),
+            );
+
+        frame.render_widget(chart, area);
     }
 
     fn render_loss_chart(
@@ -152,7 +215,6 @@ mod gradtop {
             )
             .y_axis(
                 Axis::default()
-                    // .title("nottestLoss")
                     .style(Style::default().fg(Color::Gray))
                     .labels([
                         format!("{:.3}", y_bounds[0]),
@@ -180,7 +242,7 @@ mod gradtop {
             let handle = std::thread::spawn(move || {
                 let mut app = App::new(rx);
                 if let Err(e) = ratatui::run(|terminal| app.run(terminal)) {
-                    eprintln!("TUI thread error: {e}");
+                    let _ = std::fs::write("/tmp/gradtop_error.txt", format!("{e}"));
                 }
             });
 
@@ -194,17 +256,17 @@ mod gradtop {
             &self,
             loss: f64,
             names: Vec<String>,
-            grad_norms: Vec<f64>,
-            weight_norms: Vec<f64>,
+            grad_stds: Vec<f64>,
+            data_stds: Vec<f64>,
         ) -> PyResult<()> {
             let layers: Vec<Layer> = names
                 .into_iter()
-                .zip(grad_norms)
-                .zip(weight_norms)
-                .map(|((name, grad_norm), weight_norm)| Layer {
+                .zip(grad_stds)
+                .zip(data_stds)
+                .map(|((name, grad_std), data_std)| Layer {
                     name,
-                    grad_norm,
-                    weight_norm,
+                    grad_std,
+                    data_std,
                 })
                 .collect();
             let stats = Stats { loss, layers };
@@ -215,9 +277,7 @@ mod gradtop {
 
     impl Drop for Monitor {
         fn drop(&mut self) {
-            // Signal the TUI thread to quit cleanly
             let _ = self.sender.send(Message::Quit);
-            // Wait for it to finish restoring the terminal
             if let Some(handle) = self.handle.take() {
                 let _ = handle.join();
             }

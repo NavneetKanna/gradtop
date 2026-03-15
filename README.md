@@ -9,7 +9,9 @@ A terminal UI for monitoring neural network training in real time. Inspired by h
 
 ## Installation
 
+```bash
 pip install gradtop
+```
 
 ## Development
 
